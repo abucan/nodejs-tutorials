@@ -34,6 +34,12 @@ const UserSchema = new mongoose.Schema({
     default: false,
   },
   verified: Date,
+  passwordToken: {
+    type: String,
+  },
+  passwordTokenExpirationDate: {
+    type: Date,
+  },
 });
 
 UserSchema.pre('save', async function () {
@@ -44,8 +50,13 @@ UserSchema.pre('save', async function () {
   this.password = await bcrypt.hash(this.password, salt);
 });
 
-UserSchema.methods.comparePassword = async function (canditatePassword) {
-  const isMatch = await bcrypt.compare(canditatePassword, this.password);
+UserSchema.methods.comparePassword = async function (
+  canditatePassword,
+) {
+  const isMatch = await bcrypt.compare(
+    canditatePassword,
+    this.password,
+  );
   return isMatch;
 };
 

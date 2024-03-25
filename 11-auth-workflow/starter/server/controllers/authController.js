@@ -1,7 +1,13 @@
 const User = require('../models/User');
 const { StatusCodes } = require('http-status-codes');
 const CustomError = require('../errors');
-const { attachCookiesToResponse, createTokenUser, sendVerificationEmail } = require('../utils');
+const {
+  attachCookiesToResponse,
+  createTokenUser,
+  sendVerificationEmail,
+  sendResetPasswordEmail,
+  hashString,
+} = require('../utils');
 const crypto = require('crypto');
 const Token = require('../models/Token');
 
@@ -18,18 +24,33 @@ const register = async (req, res) => {
   const role = isFirstAccount ? 'admin' : 'user';
 
   const verificationToken = crypto.randomBytes(40).toString('hex');
-  const user = await User.create({ email, name, password, role, verificationToken });
+  const user = await User.create({
+    email,
+    name,
+    password,
+    role,
+    verificationToken,
+  });
 
-  await sendVerificationEmail({ name: user.name, email: user.email, verificationToken: user.verificationToken, origin: req.get('origin')})
+  await sendVerificationEmail({
+    name: user.name,
+    email: user.email,
+    verificationToken: user.verificationToken,
+    origin: req.get('origin'),
+  });
 
-  res.status(StatusCodes.CREATED).json({ msg: 'Success! Please check your email to verify account.' });
+  res.status(StatusCodes.CREATED).json({
+    msg: 'Success! Please check your email to verify account.',
+  });
 };
 
 const login = async (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
-    throw new CustomError.BadRequestError('Please provide email and password');
+    throw new CustomError.BadRequestError(
+      'Please provide email and password',
+    );
   }
   const user = await User.findOne({ email });
 
@@ -41,8 +62,10 @@ const login = async (req, res) => {
     throw new CustomError.UnauthenticatedError('Invalid Credentials');
   }
 
-  if(!user.isVerified) {
-    throw new CustomError.UnauthenticatedError('Please verify your email first!');
+  if (!user.isVerified) {
+    throw new CustomError.UnauthenticatedError(
+      'Please verify your email first!',
+    );
   }
 
   const tokenUser = createTokenUser(user);
@@ -51,10 +74,12 @@ const login = async (req, res) => {
 
   const existingToken = await Token.findOne({ user: user._id });
 
-  if(existingToken) {
-    const {isValid} = existingToken;
-    if(!isValid) {
-      throw new CustomError.UnauthenticatedError('Invalid refresh token');
+  if (existingToken) {
+    const { isValid } = existingToken;
+    if (!isValid) {
+      throw new CustomError.UnauthenticatedError(
+        'Invalid refresh token',
+      );
     }
     refreshToken = existingToken.refreshToken;
     attachCookiesToResponse({ res, user: tokenUser, refreshToken });
@@ -67,7 +92,7 @@ const login = async (req, res) => {
   const userAgent = req.headers['user-agent'];
   const ip = req.ip;
 
-  const userToken = {refreshToken, ip, userAgent, user: user._id}
+  const userToken = { refreshToken, ip, userAgent, user: user._id };
   await Token.create(userToken);
 
   attachCookiesToResponse({ res, user: tokenUser, refreshToken });
@@ -76,7 +101,7 @@ const login = async (req, res) => {
 };
 
 const logout = async (req, res) => {
-  await Token.findOneAndDelete({user: req.user.user_id})
+  await Token.findOneAndDelete({ user: req.user.user_id });
   res.cookie('accessToken', 'logout', {
     httpOnly: true,
     expires: new Date(Date.now()),
@@ -107,12 +132,77 @@ const verifyEmail = async (req, res) => {
 
   await user.save();
 
-  res.status(StatusCodes.OK).json({ msg: 'Email verified!' })
-}
+  res.status(StatusCodes.OK).json({ msg: 'Email verified!' });
+};
+
+const forgotPassword = async (req, res) => {
+  const { email } = req.body;
+
+  if (!email) {
+    throw new CustomError.BadRequestError('Please provide email');
+  }
+
+  const user = await User.findOne({ email });
+
+  if (user) {
+    const passwordToken = crypto.randomBytes(40).toString('hex');
+
+    await sendResetPasswordEmail({
+      name: user.name,
+      email: user.email,
+      token: passwordToken,
+      origin: req.get('origin'),
+    });
+
+    const passwordTokenExpirationDate = new Date(
+      Date.now() + 1000 * 60 * 10,
+    );
+
+    user.passwordToken = hashString(passwordToken);
+    user.passwordTokenExpirationDate = passwordTokenExpirationDate;
+
+    await user.save();
+  }
+
+  res
+    .status(StatusCodes.OK)
+    .json({ msg: 'Please check your email for password reset.' });
+};
+
+const resetPassword = async (req, res) => {
+  const { token, email, password } = req.body;
+
+  if (!token || !email || !password) {
+    throw new CustomError.BadRequestError(
+      'Please provide all values.',
+    );
+  }
+
+  const user = await User.findOne({ email });
+
+  if (user) {
+    const currentDate = new Date();
+    if (
+      user.passwordToken === hashString(token) &&
+      user.passwordTokenExpirationDate > currentDate
+    ) {
+      user.password = password;
+      user.passwordToken = null;
+      user.passwordTokenExpirationDate = null;
+
+      await user.save();
+    }
+  }
+  res
+    .status(StatusCodes.OK)
+    .json({ msg: 'Password reset successful' });
+};
 
 module.exports = {
   register,
   login,
   logout,
-  verifyEmail
+  verifyEmail,
+  forgotPassword,
+  resetPassword,
 };

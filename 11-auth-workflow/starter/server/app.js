@@ -33,7 +33,7 @@ app.use(
   rateLimiter({
     windowMs: 15 * 60 * 1000,
     max: 60,
-  })
+  }),
 );
 app.use(helmet());
 app.use(cors());
@@ -60,7 +60,7 @@ const start = async () => {
   try {
     await connectDB(process.env.MONGO_URL);
     app.listen(port, () =>
-      console.log(`Server is listening on port ${port}...`)
+      console.log(`Server is listening on port ${port}...`),
     );
   } catch (error) {
     console.log(error);
